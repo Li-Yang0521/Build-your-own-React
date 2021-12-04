@@ -2,50 +2,69 @@
  * @Author: Yang Li
  * @Date: 2021-12-04 17:37:13
  * @Last Modified by: Yang Li
- * @Last Modified time: 2021-12-04 17:46:34
+ * @Last Modified time: 2021-12-04 20:35:30
  */
 
 import './index.css';
 
-// 1、jsx语法
-// import React from 'react';
-// import ReactDOM from 'react-dom';
-
-// const element = <h1>Hello React</h1>;
-// const container = document.getElementById('root');
-// ReactDOM.render(element, container);
-
-// 2、React.createElement
-// import React from 'react';
-// import ReactDOM from 'react-dom';
-
-// const element = React.createElement(
-//   'h1',
-//   { style: { textAlign: 'center' } },
-//   'Hello React'
-// );
-// const container = document.getElementById('root');
-// ReactDOM.render(element, container);
-
-// 3、纯js实现
-const container = document.getElementById('root');
-
-// element代表React Elemnet
-const element = {
-  type: 'h1',
-  props: {
-    style: { textAlgin: 'center' },
-    childen: 'Hello React',
-  },
+const createElement = (type, props, ...children) => {
+  return {
+    type,
+    props: {
+      ...props,
+      children: children.map((child) =>
+        typeof child === 'object' ? child : createTextElement(child)
+      ),
+    },
+  };
 };
 
-// node代表DOM Element
-const node = document.createElement(element.type);
+const createTextElement = (text) => {
+  return {
+    type: 'TEXT_ELEMENT',
+    props: {
+      nodeValue: text,
+      children: [],
+    },
+  };
+};
 
-node.setAttribute('style', `text-align: ${element.props.style.textAlgin}`);
-// const text = document.createTextNode('');
-// text['nodeValue'] = element.props.childen;
-const text = document.createTextNode(element.props.childen);
-node.appendChild(text);
+const render = (element, container) => {
+  const dom =
+    element.type === 'TEXT_ELEMENT'
+      ? document.createTextNode('')
+      : document.createElement(element.type);
 
-container?.appendChild(node);
+  // Object.keys(element.props)
+  //   .filter((key) => key !== 'children')
+  //   .forEach((name) => {
+  //     dom[name] = element.props[name];
+  //   });
+
+  Object.keys(element.props)
+    .filter((key) => key !== 'children')
+    .forEach((key) => {
+      dom[key] = element.props[key];
+    });
+
+  element.props.children.forEach((child) => {
+    render(child, dom);
+  });
+
+  container.appendChild(dom);
+};
+
+const Li = {
+  createElement,
+  render,
+};
+
+/** @jsxRuntime classic */
+/** @jsx Li.createElement */
+const element = (
+  <div>
+    <span>Hello</span> - <strong>React</strong>
+  </div>
+);
+const container = document.getElementById('root');
+Li.render(element, container);
