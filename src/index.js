@@ -2,10 +2,12 @@
  * @Author: Yang Li
  * @Date: 2021-12-04 17:37:13
  * @Last Modified by: Yang Li
- * @Last Modified time: 2021-12-05 12:28:19
+ * @Last Modified time: 2021-12-05 21:45:57
  */
 
 import './index.css';
+
+let nextUnitOfWork = null;
 
 const createElement = (type, props, ...children) => {
   return {
@@ -29,37 +31,38 @@ const createTextElement = (text) => {
   };
 };
 
-const render = (element, container) => {
+const createDom = (fiber) => {
   const dom =
-    element.type === 'TEXT_ELEMENT'
+    fiber.type === 'TEXT_ELEMENT'
       ? document.createTextNode('')
-      : document.createElement(element.type);
+      : document.createElement(fiber.type);
 
-  Object.keys(element.props)
+  Object.keys(fiber.props)
     .filter((key) => key !== 'children')
     .forEach((key) => {
-      dom[key] = element.props[key];
+      dom[key] = fiber.props[key];
     });
-
-  element.props.children.forEach((child) => {
-    render(child, dom);
-  });
-
-  container.appendChild(dom);
 };
 
-let nextUnitOfWork = null;
+const render = (element, container) => {
+  nextUnitOfWork = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+  };
+};
 
 /**
  * 趁着浏览器空闲执行一些工作
- * @param {number} deadline 浏览器剩余空闲时间ms
+ * @param deadline 浏览器剩余空闲时间ms
  */
 const workLoop = (deadline) => {
   let shouldYield = false;
 
   while (nextUnitOfWork && !shouldYield) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
-    shouldYield = deadline.timeremaining() < 1;
+    shouldYield = deadline.timeRemaining() < 1;
   }
 
   // 浏览器空闲时执行workLoop方法;
@@ -69,7 +72,53 @@ const workLoop = (deadline) => {
 // 浏览器空闲时执行workLoop方法;
 requestIdleCallback(workLoop);
 
-const performUnitOfWork = (nextUnitOfWork) => {};
+const performUnitOfWork = (fiber) => {
+  console.log(fiber);
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  if (fiber.parent) {
+    fiber.parent.dom.appendChild(fiber.dom);
+  }
+
+  const elements = fiber.props.children;
+  let index = 0;
+  let prevSibling = null;
+
+  while (index < elements.length) {
+    const element = elements[index];
+
+    const newFiber = {
+      type: element.type,
+      props: element.props,
+      parnet: fiber,
+      dom: null,
+    };
+
+    if (index === 0) {
+      fiber.child = newFiber;
+    } else {
+      prevSibling.sibling = newFiber;
+    }
+    prevSibling = newFiber;
+    index++;
+  }
+
+  if (fiber.child) {
+    return fiber.child;
+  }
+
+  let nextFiber = fiber;
+
+  while (nextFiber) {
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+
+    nextFiber = nextFiber.parent;
+  }
+};
 
 const Li = {
   createElement,
