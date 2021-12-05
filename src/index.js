@@ -2,7 +2,7 @@
  * @Author: Yang Li
  * @Date: 2021-12-04 17:37:13
  * @Last Modified by: Yang Li
- * @Last Modified time: 2021-12-04 20:35:30
+ * @Last Modified time: 2021-12-05 12:28:19
  */
 
 import './index.css';
@@ -35,12 +35,6 @@ const render = (element, container) => {
       ? document.createTextNode('')
       : document.createElement(element.type);
 
-  // Object.keys(element.props)
-  //   .filter((key) => key !== 'children')
-  //   .forEach((name) => {
-  //     dom[name] = element.props[name];
-  //   });
-
   Object.keys(element.props)
     .filter((key) => key !== 'children')
     .forEach((key) => {
@@ -53,6 +47,29 @@ const render = (element, container) => {
 
   container.appendChild(dom);
 };
+
+let nextUnitOfWork = null;
+
+/**
+ * 趁着浏览器空闲执行一些工作
+ * @param {number} deadline 浏览器剩余空闲时间ms
+ */
+const workLoop = (deadline) => {
+  let shouldYield = false;
+
+  while (nextUnitOfWork && !shouldYield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+    shouldYield = deadline.timeremaining() < 1;
+  }
+
+  // 浏览器空闲时执行workLoop方法;
+  requestIdleCallback(workLoop);
+};
+
+// 浏览器空闲时执行workLoop方法;
+requestIdleCallback(workLoop);
+
+const performUnitOfWork = (nextUnitOfWork) => {};
 
 const Li = {
   createElement,
