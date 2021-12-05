@@ -2,7 +2,7 @@
  * @Author: Yang Li
  * @Date: 2021-12-04 17:37:13
  * @Last Modified by: Yang Li
- * @Last Modified time: 2021-12-05 21:45:57
+ * @Last Modified time: 2021-12-05 23:20:47
  */
 
 import './index.css';
@@ -42,6 +42,8 @@ const createDom = (fiber) => {
     .forEach((key) => {
       dom[key] = fiber.props[key];
     });
+
+  return dom;
 };
 
 const render = (element, container) => {
@@ -53,10 +55,7 @@ const render = (element, container) => {
   };
 };
 
-/**
- * 趁着浏览器空闲执行一些工作
- * @param deadline 浏览器剩余空闲时间ms
- */
+// workLoop依赖requestIdleCallback实现调度
 const workLoop = (deadline) => {
   let shouldYield = false;
 
@@ -65,19 +64,19 @@ const workLoop = (deadline) => {
     shouldYield = deadline.timeRemaining() < 1;
   }
 
-  // 浏览器空闲时执行workLoop方法;
   requestIdleCallback(workLoop);
 };
 
-// 浏览器空闲时执行workLoop方法;
 requestIdleCallback(workLoop);
 
+// 处理 unitOfWork
 const performUnitOfWork = (fiber) => {
-  console.log(fiber);
+  // 创建DOM
   if (!fiber.dom) {
     fiber.dom = createDom(fiber);
   }
 
+  // 挂载DOM
   if (fiber.parent) {
     fiber.parent.dom.appendChild(fiber.dom);
   }
@@ -98,13 +97,16 @@ const performUnitOfWork = (fiber) => {
 
     if (index === 0) {
       fiber.child = newFiber;
-    } else {
+    }
+
+    if (prevSibling) {
       prevSibling.sibling = newFiber;
     }
     prevSibling = newFiber;
     index++;
   }
 
+  // 返回 next unitOfWork
   if (fiber.child) {
     return fiber.child;
   }
