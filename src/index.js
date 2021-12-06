@@ -2,12 +2,13 @@
  * @Author: Yang Li
  * @Date: 2021-12-04 17:37:13
  * @Last Modified by: Yang Li
- * @Last Modified time: 2021-12-05 23:20:47
+ * @Last Modified time: 2021-12-06 13:54:53
  */
 
 import './index.css';
 
 let nextUnitOfWork = null;
+let wipRoot = null;
 
 const createElement = (type, props, ...children) => {
   return {
@@ -47,12 +48,30 @@ const createDom = (fiber) => {
 };
 
 const render = (element, container) => {
-  nextUnitOfWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element],
     },
   };
+  nextUnitOfWork = wipRoot;
+};
+
+const commitRoot = () => {
+  commitWork(wipRoot.child);
+  wipRoot = null;
+};
+
+const commitWork = (fiber) => {
+  if (!fiber) {
+    return;
+  }
+
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom);
+
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
 };
 
 // workLoop依赖requestIdleCallback实现调度
@@ -62,6 +81,11 @@ const workLoop = (deadline) => {
   while (nextUnitOfWork && !shouldYield) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
     shouldYield = deadline.timeRemaining() < 1;
+  }
+
+  // 进入commit阶段的判断条件：有一棵树在渲染流程中，并且render阶段已执行完毕
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot();
   }
 
   requestIdleCallback(workLoop);
@@ -76,11 +100,7 @@ const performUnitOfWork = (fiber) => {
     fiber.dom = createDom(fiber);
   }
 
-  // 挂载DOM
-  if (fiber.parent) {
-    fiber.parent.dom.appendChild(fiber.dom);
-  }
-
+  // 创建 children fibers
   const elements = fiber.props.children;
   let index = 0;
   let prevSibling = null;
@@ -91,15 +111,13 @@ const performUnitOfWork = (fiber) => {
     const newFiber = {
       type: element.type,
       props: element.props,
-      parnet: fiber,
+      parent: fiber,
       dom: null,
     };
 
     if (index === 0) {
       fiber.child = newFiber;
-    }
-
-    if (prevSibling) {
+    } else {
       prevSibling.sibling = newFiber;
     }
     prevSibling = newFiber;
