@@ -2,7 +2,7 @@
  * @Author: Yang Li
  * @Date: 2021-12-04 17:37:13
  * @Last Modified by: Yang Li
- * @Last Modified time: 2021-12-06 19:02:58
+ * @Last Modified time: 2021-12-07 18:13:34
  */
 
 import './index.css';
@@ -10,41 +10,33 @@ import './index.css';
 let nextUnitOfWork = null;
 let currentRoot = null;
 let wipRoot = null;
-let deletion = null;
+let deletions = null;
+let wipFiber = null;
+let hookIndex = null;
 
-const createElement = (type, props, ...children) => {
-  return {
-    type,
-    props: {
-      ...props,
-      children: children.map((child) =>
-        typeof child === 'object' ? child : createTextElement(child)
-      ),
-    },
-  };
-};
+const createElement = (type, props, ...children) => ({
+  type,
+  props: {
+    ...props,
+    children: children.map((child) =>
+      typeof child === 'object' ? child : createTextElement(child)
+    ),
+  },
+});
 
-const createTextElement = (text) => {
-  return {
-    type: 'TEXT_ELEMENT',
-    props: {
-      nodeValue: text,
-      children: [],
-    },
-  };
-};
+const createTextElement = (text) => ({
+  type: 'TEXT_ELEMENT',
+  props: {
+    nodeValue: text,
+    children: [],
+  },
+});
 
 const createDom = (fiber) => {
   const dom =
     fiber.type === 'TEXT_ELEMENT'
       ? document.createTextNode('')
       : document.createElement(fiber.type);
-
-  // Object.keys(fiber.props)
-  //   .filter((key) => key !== 'children')
-  //   .forEach((key) => {
-  //     dom[key] = fiber.props[key];
-  //   });
 
   updateDom(dom, {}, fiber.props);
 
@@ -56,8 +48,8 @@ const updateDom = (dom, prevProps, nextProps) => {
   const isProperty = (key) => key !== 'children';
   const isNew = (prev, next) => (key) => prev[key] !== next[key];
   const isGone = (next) => (key) => !(key in next);
-
   const getEventType = (name) => name.toLowerCase().substring(2);
+
   // 删除旧的或者已改变的event;
   Object.keys(prevProps)
     .filter(isEvent)
@@ -67,16 +59,7 @@ const updateDom = (dom, prevProps, nextProps) => {
       dom.removeEventListener(eventType, prevProps[name]);
     });
 
-  //增加新的event
-  Object.keys(nextProps)
-    .filter(isEvent)
-    .filter(isNew(prevProps, nextProps))
-    .forEach((name) => {
-      const eventType = getEventType(name);
-      dom.addEventListener(eventType, nextProps[name]);
-    });
-
-  // 删除不存在的dom
+  // 删除旧的dom
   Object.keys(prevProps)
     .filter(isProperty)
     .filter(isGone(nextProps))
@@ -91,13 +74,30 @@ const updateDom = (dom, prevProps, nextProps) => {
     .forEach((name) => {
       dom[name] = nextProps[name];
     });
+
+  //增加新的event
+  Object.keys(nextProps)
+    .filter(isEvent)
+    .filter(isNew(prevProps, nextProps))
+    .forEach((name) => {
+      const eventType = getEventType(name);
+      dom.addEventListener(eventType, nextProps[name]);
+    });
 };
 
 const commitRoot = () => {
-  deletion.forEach(commitWork);
+  deletions.forEach(commitWork);
   commitWork(wipRoot.child);
   currentRoot = wipRoot;
   wipRoot = null;
+};
+
+const commitDeletion = (fiber, domParent) => {
+  if (fiber.dom) {
+    domParent.removeChild(fiber.dom);
+  } else {
+    commitDeletion(fiber.child, domParent);
+  }
 };
 
 const commitWork = (fiber) => {
@@ -105,16 +105,22 @@ const commitWork = (fiber) => {
     return;
   }
 
-  const domParent = fiber.parent.dom;
+  let domParentFiber = fiber.parent;
+
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
+  }
+
+  const domParent = domParentFiber.dom;
 
   if (fiber.dom != null) {
     if (fiber.effectTag === 'PLACEMENT') {
       domParent.appendChild(fiber.dom);
-    } else if (fiber.effectTag === 'DELETION') {
-      domParent.removeChild(fiber.dom);
-    } else if (fiber.effectTage === 'UPDATE') {
+    } else if (fiber.effectTag === 'UPDATE') {
       updateDom(fiber.dom, fiber.alternate.props, fiber.props);
     }
+  } else if (fiber.effectTag === 'DELETION') {
+    commitDeletion(fiber.child, domParent);
   }
 
   commitWork(fiber.child);
@@ -129,7 +135,7 @@ const render = (element, container) => {
     },
     alternate: currentRoot,
   };
-  deletion = [];
+  deletions = [];
   nextUnitOfWork = wipRoot;
 };
 
@@ -152,16 +158,27 @@ const workLoop = (deadline) => {
 
 requestIdleCallback(workLoop);
 
-// 处理 unitOfWork
-const performUnitOfWork = (fiber) => {
-  // 创建DOM
+const updateHostComponent = (fiber) => {
   if (!fiber.dom) {
     fiber.dom = createDom(fiber);
   }
 
-  // 创建 children fibers
-  const elements = fiber.props.children;
-  reconcileChildren(fiber, elements);
+  reconcileChildren(fiber, fiber.props.children);
+};
+
+const updateFunctionComponent = (fiber) => {
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
+  const children = [fiber.type(fiber.props)];
+  reconcileChildren(fiber, children);
+};
+
+// 处理 unitOfWork
+const performUnitOfWork = (fiber) => {
+  const isFunction = fiber.type instanceof Function;
+
+  isFunction ? updateFunctionComponent(fiber) : updateHostComponent(fiber);
 
   // 返回 next unitOfWork
   if (fiber.child) {
@@ -179,8 +196,8 @@ const performUnitOfWork = (fiber) => {
   }
 };
 
-const reconcileChildren = (wipFiber, elements) => {
-  let oldFiber = wipFiber.alternate?.child;
+const reconcileChildren = (fiber, elements) => {
+  let oldFiber = fiber.alternate?.child;
   let index = 0;
   let prevSibling = null;
 
@@ -194,7 +211,7 @@ const reconcileChildren = (wipFiber, elements) => {
         type: oldFiber.type,
         props: element.props,
         dom: oldFiber.dom,
-        parent: wipFiber,
+        parent: fiber,
         alternate: oldFiber,
         effectTag: 'UPDATE',
       };
@@ -205,7 +222,7 @@ const reconcileChildren = (wipFiber, elements) => {
         type: element.type,
         props: element.props,
         dom: null,
-        parent: wipFiber,
+        parent: fiber,
         effectTag: 'PLACEMENT',
       };
     }
@@ -220,26 +237,64 @@ const reconcileChildren = (wipFiber, elements) => {
     }
 
     if (index === 0) {
-      wipFiber.child = newFiber;
+      fiber.child = newFiber;
     } else if (element) {
       prevSibling.sibling = newFiber;
     }
+
     prevSibling = newFiber;
     index++;
   }
 };
 
+const useState = (initial) => {
+  const oldHook = wipFiber.alternate?.hooks?.[hookIndex];
+
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: [],
+  };
+
+  const actions = oldHook ? oldHook.queue : [];
+  actions.forEach((action) => {
+    hook.state = action(hook.state);
+  });
+
+  const setState = (action) => {
+    hook.queue.push(action);
+
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  };
+
+  wipFiber.hooks.push(hook);
+  hookIndex++;
+  return [hook.state, setState];
+};
+
 const Li = {
   createElement,
   render,
+  useState,
 };
 
 /** @jsxRuntime classic */
 /** @jsx Li.createElement */
-const element = (
-  <div>
-    <span>Hello</span> - <strong>React</strong>
-  </div>
-);
+
+const Counter = () => {
+  const [state, setState] = Li.useState(0);
+
+  return (
+    <h1 onClick={() => setState((c) => c + 1)} style="user-select: none">
+      Count: {state}
+    </h1>
+  );
+};
+const element = <Counter />;
 const container = document.getElementById('root');
 Li.render(element, container);
